@@ -3,6 +3,7 @@ import json
 import asyncio
 import time
 import os
+import random
 import websockets
 from loguru import logger
 from dotenv import load_dotenv
@@ -10,21 +11,37 @@ from XianyuApis import XianyuApis
 import sys
 
 
+
 from utils.xianyu_utils import generate_mid, generate_uuid, trans_cookies, generate_device_id, decrypt
+from utils.reporting_utils import log_daily_event, log_daily_conversation
 from XianyuAgent import XianyuReplyBot
 from context_manager import ChatContextManager
 
 
 class XianyuLive:
-    def __init__(self, cookies_str):
+    def __init__(self, cookies_str, bot):
+        # 加载外部配置
+        with open("config.json", "r", encoding="utf-8") as f:
+            self.config = json.load(f)
+
         self.xianyu = XianyuApis()
-        self.base_url = 'wss://wss-goofish.dingtalk.com/'
+        self.base_url = self.config["api_endpoints"]["websocket_url"]
         self.cookies_str = cookies_str
+        self.bot = bot
         self.cookies = trans_cookies(cookies_str)
         self.xianyu.session.cookies.update(self.cookies)  # 直接使用 session.cookies.update
         self.myid = self.cookies['unb']
         self.device_id = generate_device_id(self.myid)
         self.context_manager = ChatContextManager()
+        
+        # 加载行为调整配置
+        behavior_config = self.config.get("behavior_tuning", {})
+        delays = behavior_config.get("delays", {})
+        self.reply_min_secs = delays.get("reply_min_secs", 2.0)
+        self.reply_max_secs = delays.get("reply_max_secs", 5.0)
+
+    async def initialize(self):
+        await self.context_manager._init_db()
         
         # 心跳相关配置
         self.heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL", "15"))  # 心跳间隔，默认15秒
@@ -161,20 +178,10 @@ class XianyuLive:
             logger.error("无法获取有效token，初始化失败")
             raise Exception("Token获取失败")
             
-        msg = {
-            "lwp": "/reg",
-            "headers": {
-                "cache-header": "app-key token ua wv",
-                "app-key": "444e9908a51d1cb236a27862abc769c9",
-                "token": self.current_token,
-                "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DingTalk(2.1.5) OS(Windows/10) Browser(Chrome/133.0.0.0) DingWeb/2.1.5 IMPaaS DingWeb/2.1.5",
-                "dt": "j",
-                "wv": "im:3,au:3,sy:6",
-                "sync": "0,0;0;0;",
-                "did": self.device_id,
-                "mid": generate_mid()
-            }
-        }
+        msg = self.config["websocket"]["init_message"].copy()
+        msg["headers"]["token"] = self.current_token
+        msg["headers"]["did"] = self.device_id
+        msg["headers"]["mid"] = generate_mid()
         await ws.send(json.dumps(msg))
         # 等待一段时间，确保连接注册完成
         await asyncio.sleep(1)
@@ -282,6 +289,28 @@ class XianyuLive:
 
     async def handle_message(self, message_data, websocket):
         """处理所有类型的消息"""
+        # --- 离线模式优先检查 ---
+        away_mode_config = self.config.get("auto_reply_modes", {}).get("away_mode", {})
+        if away_mode_config.get("enabled", False):
+            try:
+                # 只对真实的用户聊天消息进行离线回复
+                sync_data = message_data["body"]["syncPushPackage"]["data"][0]
+                decrypted_data = decrypt(sync_data["data"])
+                message = json.loads(decrypted_data)
+                if self.is_chat_message(message):
+                    send_user_id = message["1"]["10"]["senderUserId"]
+                    if send_user_id != self.myid:
+                        chat_id = message["1"]["2"].split('@')[0]
+                        raw_message = away_mode_config.get("message", "卖家当前不在线，看到后会尽快回复您。")
+                        return_date = away_mode_config.get("return_date", "稍后")
+                        final_message = raw_message.replace("[return_date]", return_date)
+                        logger.info(f"触发离线自动回复 -> to {chat_id}")
+                        await self.send_msg(websocket, chat_id, send_user_id, final_message)
+            except Exception as e:
+                logger.debug(f"离线回复检查期间发生错误（可能非标准聊天消息）: {e}")
+            return # 无论如何，只要开启离线模式，就终止后续所有操作
+        # -------------------------
+
         try:
 
             try:
@@ -318,35 +347,39 @@ class XianyuLive:
             # 解密数据
             try:
                 data = sync_data["data"]
+                message = None
                 try:
-                    data = base64.b64decode(data).decode("utf-8")
-                    data = json.loads(data)
-                    # logger.info(f"无需解密 message: {data}")
-                    return
-                except Exception as e:
-                    # logger.info(f'加密数据: {data}')
+                    # 优先尝试直接解码，处理未加密的普通消息
+                    decoded_data = base64.b64decode(data).decode("utf-8")
+                    message = json.loads(decoded_data)
+                    # logger.info(f"无需解密，直接处理: {message}")
+                except Exception:
+                    # 如果直接解码失败，则认为是加密消息，调用自定义解密
+                    # logger.info(f'解密加密数据: {data}')
                     decrypted_data = decrypt(data)
                     message = json.loads(decrypted_data)
             except Exception as e:
-                logger.error(f"消息解密失败: {e}")
+                logger.error(f"消息解密或解析失败: {e}")
                 return
 
             try:
                 # 判断是否为订单消息,需要自行编写付款后的逻辑
                 if message['3']['redReminder'] == '等待买家付款':
                     user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    user_url = self.config["api_endpoints"]["user_profile_url"].format(user_id=user_id)
                     logger.info(f'等待买家 {user_url} 付款')
                     return
                 elif message['3']['redReminder'] == '交易关闭':
                     user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    user_url = self.config["api_endpoints"]["user_profile_url"].format(user_id=user_id)
                     logger.info(f'买家 {user_url} 交易关闭')
                     return
                 elif message['3']['redReminder'] == '等待卖家发货':
                     user_id = message['1'].split('@')[0]
-                    user_url = f'https://www.goofish.com/personal?userId={user_id}'
+                    user_url = self.config["api_endpoints"]["user_profile_url"].format(user_id=user_id)
                     logger.info(f'交易成功 {user_url} 等待卖家发货')
+                    # 记录成功销售事件
+                    log_daily_event("成功销售", "N/A", user_id, f"用户主页: {user_url}")
                     return
 
             except:
@@ -395,13 +428,13 @@ class XianyuLive:
                     return
                 
                 # 记录卖家人工回复
-                self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", send_message)
+                await self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", send_message)
                 logger.info(f"卖家人工回复 (会话: {chat_id}, 商品: {item_id}): {send_message}")
                 return
             
             logger.info(f"用户: {send_user_name} (ID: {send_user_id}), 商品: {item_id}, 会话: {chat_id}, 消息: {send_message}")
             # 添加用户消息到上下文
-            self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message)
+            await self.context_manager.add_message_by_chat(chat_id, send_user_id, item_id, "user", send_message)
             
             # 如果当前会话处于人工接管模式，不进行自动回复
             if self.is_manual_mode(chat_id):
@@ -411,14 +444,14 @@ class XianyuLive:
                 logger.debug("系统消息，跳过处理")
                 return
             # 从数据库中获取商品信息，如果不存在则从API获取并保存
-            item_info = self.context_manager.get_item_info(item_id)
+            item_info = await self.context_manager.get_item_info(item_id)
             if not item_info:
                 logger.info(f"从API获取商品信息: {item_id}")
                 api_result = self.xianyu.get_item_info(item_id)
                 if 'data' in api_result and 'itemDO' in api_result['data']:
                     item_info = api_result['data']['itemDO']
                     # 保存商品信息到数据库
-                    self.context_manager.save_item_info(item_id, item_info)
+                    await self.context_manager.save_item_info(item_id, item_info)
                 else:
                     logger.warning(f"获取商品信息失败: {api_result}")
                     return
@@ -427,25 +460,50 @@ class XianyuLive:
                 
             item_description = f"{item_info['desc']};当前商品售卖价格为:{str(item_info['soldPrice'])}"
             
-            # 获取完整的对话上下文
-            context = self.context_manager.get_context_by_chat(chat_id)
-            # 生成回复
-            bot_reply = bot.generate_reply(
+            # --- 上下文切换检测 ---
+            last_item_id = await self.context_manager.get_last_item_id(chat_id)
+            context_switched = last_item_id is not None and last_item_id != item_id
+            
+            # 获取特定于该商品的对话上下文
+            context = await self.context_manager.get_context_for_item(chat_id, item_id)
+
+            # 如果是第一次咨询，记录事件
+            if not context:
+                log_daily_event("新咨询", item_id, send_user_name, f"会话ID: {chat_id}")
+
+            # 如果检测到上下文切换，注入系统提示
+            if context_switched:
+                logger.info(f"检测到商品切换: 从 {last_item_id} -> 到 {item_id}")
+                context.insert(0, {"role": "system", "content": "[系统提示] 用户刚刚切换到了一个新的商品进行咨询。"})
+            
+            # --- 生成回复 ---
+            bot_reply = self.bot.generate_reply(
                 send_message,
-                item_description,
+                item_info, # 传递完整的商品信息对象
                 context=context
             )
             
-            # 检查是否为价格意图，如果是则增加议价次数
-            if bot.last_intent == "price":
-                self.context_manager.increment_bargain_count_by_chat(chat_id)
-                bargain_count = self.context_manager.get_bargain_count_by_chat(chat_id)
+            # 检查是否为价格意图，如果是则增加对应商品的议价次数
+            if self.bot.last_intent == "price":
+                await self.context_manager.increment_bargain_count_for_item(chat_id, item_id)
+                bargain_count = await self.context_manager.get_bargain_count_for_item(chat_id, item_id)
                 logger.info(f"用户 {send_user_name} 对商品 {item_id} 的议价次数: {bargain_count}")
             
             # 添加机器人回复到上下文
-            self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", bot_reply)
+            await self.context_manager.add_message_by_chat(chat_id, self.myid, item_id, "assistant", bot_reply)
+
+            # 更新会话状态，记录最后交互的商品ID
+            await self.context_manager.update_last_item_id(chat_id, item_id)
             
+            # --- 模拟思考延迟 ---
+            reply_delay = random.uniform(self.reply_min_secs, self.reply_max_secs)
+            logger.info(f"模拟思考，延迟 {reply_delay:.2f} 秒后发送回复...")
+            await asyncio.sleep(reply_delay)
+            # ---------------------
+
             logger.info(f"机器人回复: {bot_reply}")
+            # 记录对话
+            log_daily_conversation(chat_id, send_user_name, item_id, send_message, bot_reply)
             await self.send_msg(websocket, chat_id, send_user_id, bot_reply)
             
         except Exception as e:
@@ -513,17 +571,8 @@ class XianyuLive:
                 # 重置连接重启标志
                 self.connection_restart_flag = False
                 
-                headers = {
-                    "Cookie": self.cookies_str,
-                    "Host": "wss-goofish.dingtalk.com",
-                    "Connection": "Upgrade",
-                    "Pragma": "no-cache",
-                    "Cache-Control": "no-cache",
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                    "Origin": "https://www.goofish.com",
-                    "Accept-Encoding": "gzip, deflate, br, zstd",
-                    "Accept-Language": "zh-CN,zh;q=0.9",
-                }
+                headers = self.config["websocket"]["headers"].copy()
+                headers["Cookie"] = self.cookies_str
 
                 async with websockets.connect(self.base_url, extra_headers=headers) as websocket:
                     self.ws = websocket
@@ -606,9 +655,14 @@ class XianyuLive:
                     await asyncio.sleep(5)
 
 
-if __name__ == '__main__':
+async def main():
     # 加载环境变量
     load_dotenv()
+
+    # 动态设置OPENAI_API_KEY以兼容langchain
+    api_key = os.getenv("API_KEY")
+    if api_key:
+        os.environ["OPENAI_API_KEY"] = api_key
     
     # 配置日志级别
     log_level = os.getenv("LOG_LEVEL", "DEBUG").upper()
@@ -618,10 +672,28 @@ if __name__ == '__main__':
         level=log_level,
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
     )
+    # 添加文件日志
+    logger.add(
+        "agent.log",
+        level=log_level,
+        format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}",
+        rotation="10 MB",  # 每10MB切割一次日志文件
+        retention="7 days", # 保留7天的日志
+        encoding="utf-8"
+    )
     logger.info(f"日志级别设置为: {log_level}")
     
     cookies_str = os.getenv("COOKIES_STR")
     bot = XianyuReplyBot()
-    xianyuLive = XianyuLive(cookies_str)
+    
+    xianyuLive = XianyuLive(cookies_str, bot)
+    
+    # 初始化数据库
+    await xianyuLive.initialize()
+    
     # 常驻进程
-    asyncio.run(xianyuLive.main())
+    await xianyuLive.main()
+
+
+if __name__ == '__main__':
+    asyncio.run(main())

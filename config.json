@@ -1,0 +1,40 @@
+{
+    "api_endpoints": {
+        "get_token_url": "https://h5api.m.goofish.com/h5/mtop.taobao.idlemessage.pc.login.token/1.0/",
+        "get_item_info_url": "https://h5api.m.goofish.com/h5/mtop.taobao.idle.pc.detail/1.0/",
+        "has_login_url": "https://passport.goofish.com/newlogin/hasLogin.do",
+        "appKey": "34839810",
+        "tokenAppKey": "444e9908a51d1cb236a27862abc769c9",
+        "websocket_url": "wss://wss-goofish.dingtalk.com/"
+    },
+    "common_api_params": {
+        "jsv": "2.7.2",
+        "v": "1.0",
+        "type": "originaljson",
+        "accountSite": "xianyu",
+        "dataType": "json",
+        "timeout": "20000",
+        "sessionOption": "AutoLoginOnly",
+        "spm_cnt": "a21ybx.im.0.0"
+    },
+    "websocket": {
+        "headers": {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+            "Accept-Encoding": "gzip, deflate, br"
+        },
+        "init_message": {
+            "lwp": "/reg",
+            "headers": {
+                "cache-header": "app-key token ua wv",
+                "app-key": "444e9908a51d1cb236a27862abc769c9",
+                "token": "",
+                "ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 DingTalk(2.1.5) OS(Windows/10) Browser(Chrome/133.0.0.0) DingWeb/2.1.5 IMPaaS DingWeb/2.1.5",
+                "dt": "j",
+                "wv": "im:3,au:3,sy:6",
+                "sync": "0,0;0;0;",
+                "did": "",
+                "mid": ""
+            }
+        }
+    }
+}

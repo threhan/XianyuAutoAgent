@@ -171,7 +171,7 @@ class XianyuApis:
         # 简单获取token，信任cookies已清理干净
         token = self.session.cookies.get('_m_h5_tk', '').split('_')[0]
         
-        sign = generate_sign(params['t'], token, data_val)
+        sign = generate_sign(params['t'], token, data_val, params['appKey'])
         params['sign'] = sign
         
         try:
@@ -230,7 +230,7 @@ class XianyuApis:
         # 简单获取token，信任cookies已清理干净
         token = self.session.cookies.get('_m_h5_tk', '').split('_')[0]
         
-        sign = generate_sign(params['t'], token, data_val)
+        sign = generate_sign(params['t'], token, data_val, params['appKey'])
         params['sign'] = sign
         
         try:

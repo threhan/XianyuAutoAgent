@@ -69,6 +69,7 @@ API_KEY=apikey通过模型平台获取
 COOKIES_STR=填写网页端获取的cookie
 MODEL_BASE_URL=模型地址
 MODEL_NAME=模型名称
+TAVILY_API_KEY=TAVILY_API_KEY（搜索用）
 #可选配置
 TOGGLE_KEYWORDS=接管模式切换关键词，默认为句号（输入句号切换为人工接管，再次输入则切换AI接管）
 
@@ -88,12 +89,12 @@ python main.py
 
 ### 自定义提示词
 
-可以通过编辑 `prompts` 目录下的文件来自定义各个专家的提示词：
+我们鼓励您根据自己的销售风格和策略，深度自定义各个Agent的提示词。文件位于 `prompts` 目录下。
 
-- `classify_prompt.txt`: 意图分类提示词
-- `price_prompt.txt`: 价格专家提示词
-- `tech_prompt.txt`: 技术专家提示词
-- `default_prompt.txt`: 默认回复提示词
+-   `classify_prompt.txt`: **意图分类专家**。负责将用户的消息准确分类到不同的意图（如议价、技术咨询等），是整个系统的“调度中心”。
+-   `price_prompt.txt`: **议价专家**。这是最核心、经过反复优化的提示词。它采用了一种高度结构化的、基于规则的方法，强制AI遵循一个固定的回复公式。这确保了AI的还价在逻辑上永远是正确的（不会还一个比客户出价更低的价格），同时严格遵守字数限制和角色设定，杜绝了AI“自由发挥”可能导致的错误。
+-   `tech_prompt.txt`: **技术专家**。负责回答关于商品规格、用法等技术性问题。它被配置为可以利用外部搜索来获取更准确的信息。
+-   `default_prompt.txt`: **默认/闲聊专家**。当用户意图不属于任何特定类别时，由它来提供一个通用的、友好的回复。
 
 ## 🤝 参与贡献
 
@@ -103,6 +104,9 @@ python main.py
 
 ## 🛡 注意事项
 
+⚠️ **免责声明：**
+本项目仅供学习、研究与技术交流使用，严禁用于任何商业用途或非法活动。使用本项目即表示您同意自行承担所有风险和责任。开发者不对因使用本项目而导致的任何直接或间接损失承担责任。
+
 ⚠️ 注意：**本项目仅供学习与交流，如有侵权联系作者删除。**
 
 鉴于项目的特殊性，开发团队可能在任何时间**停止更新**或**删除项目**。
@@ -110,52 +114,27 @@ python main.py
 如需学习交流，请联系：[coderxiu@qq.com](https://mailto:coderxiu@qq.com/)
 
 ## 🧸特别鸣谢
+本项目修改自 [shaxiu/XianyuAutoAgent](https://github.com/shaxiu/XianyuAutoAgent)。
+
 本项目参考了以下开源项目：
 https://github.com/cv-cat/XianYuApis
 
-感谢<a href="https://github.com/cv-cat">@CVcat</a>的技术支持
 
-## 📱 交流群
-欢迎加入项目交流群，交流技术、分享经验、互助学习。
-<div align="center">
-  <table>
-    <tr>
-      <td align="center"><strong>交流群7（已满200）</strong></td>
-      <td align="center"><strong>交流群8（推荐加入）</strong></td>
-    </tr>
-    <tr>
-      <td><img src="./images/wx_group7.png" width="300px" alt="交流群1"></td>
-      <td><img src="./images/wx_group8.png" width="300px" alt="交流群2"></td>
-    </tr>
-  </table>
-</div>
 
-## 💼 寻找机会
 
-### <a href="https://github.com/shaxiu">@Shaxiu</a>
-**🔍寻求方向**：**AI产品经理实习**  
-**🛠️项目贡献：**：需求分析、agent方案设计与实现  
-**📫 联系：** **email**:coderxiu@qq.com；**wx:** coderxiu
-
-### <a href="https://github.com/cv-cat">@CVcat</a>
-**🔍寻求方向**：**研发工程师实习**（python、java、逆向、爬虫）  
-**🛠️项目贡献：**：闲鱼逆向工程  
-**📫 联系：** **email:** 992822653@qq.com；**wx:** CVZC15751076989
-## ☕ 请喝咖啡
 您的☕和⭐将助力项目持续更新：
 
 <div align="center">
   <img src="./images/wechat_pay.jpg" width="400px" alt="微信赞赏码"> 
-  <img src="./images/alipay.jpg" width="400px" alt="支付宝收款码">
 </div>
 
 
 ## 📈 Star 趋势
-<a href="https://www.star-history.com/#shaxiu/XianyuAutoAgent&Date">
+<a href="https://www.star-history.com/#threhan/XianyuAutoAgent&Date">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shaxiu/XianyuAutoAgent&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=threhan/XianyuAutoAgent&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=threhan/XianyuAutoAgent&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=threhan/XianyuAutoAgent&type=Date" />
  </picture>
 </a>
 

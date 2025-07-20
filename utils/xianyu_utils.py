@@ -58,9 +58,8 @@ def generate_device_id(user_id: str) -> str:
     return ''.join(result) + "-" + user_id
 
 
-def generate_sign(t: str, token: str, data: str) -> str:
+def generate_sign(t: str, token: str, data: str, app_key: str) -> str:
     """生成签名"""
-    app_key = "34839810"
     msg = f"{token}&{t}&{app_key}&{data}"
     
     # 使用MD5生成签名

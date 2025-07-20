@@ -1,0 +1,7 @@
+# Development and testing dependencies
+pytest
+pytest-mock
+pytest-asyncio
+black
+ruff
+mypy
